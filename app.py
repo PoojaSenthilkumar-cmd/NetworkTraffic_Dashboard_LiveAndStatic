@@ -30,6 +30,7 @@ from datetime import datetime
 # ==========================================
 
 from analyzer.parser import PcapParser
+from analyzer.parser_optimized import OptimizedPcapParser
 from analyzer.rtt import RTTAnalyzer
 from analyzer.jitter import JitterAnalyzer
 from analyzer.reordering import (ReorderingAnalyzer)
@@ -86,22 +87,65 @@ st.markdown(
 )
 
 # ==========================================
-# CACHE
+# SESSION STATE & CACHING
 # ==========================================
 
-@st.cache_data(
-    show_spinner=False
-)
-def load_pcap_cached(
-    file_path
-):
-    parser = (
-        PcapParser(
-            file_path
-        )
+def initialize_session_state():
+    """Initialize session state variables for large file handling."""
+    if 'pcap_data' not in st.session_state:
+        st.session_state.pcap_data = None
+    if 'pcap_file_name' not in st.session_state:
+        st.session_state.pcap_file_name = None
+    if 'pcap_file_id' not in st.session_state:
+        st.session_state.pcap_file_id = None
+    if 'analysis_results' not in st.session_state:
+        st.session_state.analysis_results = None
+
+
+def make_file_id(uploaded_file):
+    """Create a stable ID for the uploaded file to detect changes."""
+    try:
+        size = uploaded_file.size
+    except Exception:
+        size = len(uploaded_file.getvalue())
+    return (uploaded_file.name, size)
+
+
+def load_pcap_with_progress(file_path, file_name):
+    """
+    Load PCAP file with progress tracking.
+    Uses optimized chunked parser for large files.
+    
+    Args:
+        file_path: Path to the PCAP file
+        file_name: Display name of the file
+        
+    Returns:
+        DataFrame with parsed packets
+    """
+    progress_placeholder = st.empty()
+    status_placeholder = st.empty()
+
+    parser = OptimizedPcapParser(
+        file_path,
+        chunk_size=50000
     )
 
-    return parser.parse()
+    # Track progress
+    def progress_callback(packet_count):
+        est_total = max(packet_count, 2_000_000)
+        progress = min(packet_count / est_total, 1.0)
+        progress_placeholder.progress(progress, text=f"Parsing packets...")
+        status_placeholder.text(f"📊 Processed: {packet_count:,} packets")
+
+    # Parse with progress tracking
+    packets_df = parser.parse_chunked(progress_callback=progress_callback)
+
+    # Cleanup placeholders
+    progress_placeholder.empty()
+    status_placeholder.empty()
+
+    return packets_df
 
 
 @st.cache_data(
@@ -524,6 +568,9 @@ detected.
 
 def main():
 
+    # Initialize session state for large file handling
+    initialize_session_state()
+
     st.markdown(
         """
 <div class='main-header'>
@@ -577,30 +624,61 @@ Analysis Dashboard
         )
 
         if uploaded_file:
+            
+            # Show file size info
+            file_size_mb = len(uploaded_file.getvalue()) / (1024 * 1024)
+            
+            if file_size_mb > 1024:
+                st.sidebar.info(
+                    f"📁 Large file detected: {file_size_mb:.1f} MB "
+                    f"({file_size_mb/1024:.2f} GB)\n"
+                    f"Using optimized chunked parser..."
+                )
+            else:
+                st.sidebar.info(f"📁 File size: {file_size_mb:.1f} MB")
 
-            with st.spinner(
-                "Loading PCAP..."
-            ):
+            file_id = make_file_id(uploaded_file)
+            is_same_file = (
+                st.session_state.pcap_file_id == file_id
+                and st.session_state.pcap_data is not None
+            )
+
+            if is_same_file:
+                st.sidebar.success(
+                    "✅ Using previously parsed PCAP data from this session."
+                )
+                packets_df = st.session_state.pcap_data
+            else:
+                # Store a new uploaded file id and clear any old analysis
+                st.session_state.pcap_file_id = file_id
+                st.session_state.analysis_results = None
 
                 temp_file = (
                     tempfile
                     .NamedTemporaryFile(
-                        delete=False
+                        delete=False,
+                        suffix=".pcap"
                     )
                 )
 
                 temp_file.write(
                     uploaded_file
-                    .read()
+                    .getvalue()
                 )
 
                 temp_file.close()
 
-                packets_df = (
-                    load_pcap_cached(
-                        temp_file.name
-                    )
+                st.info("⏳ Parsing PCAP file with chunked processing...")
+                packets_df = load_pcap_with_progress(
+                    temp_file.name,
+                    uploaded_file.name
                 )
+
+                st.session_state.pcap_data = packets_df
+                st.session_state.pcap_file_name = uploaded_file.name
+
+        elif st.session_state.pcap_data is not None:
+            packets_df = st.session_state.pcap_data
 
     # ======================================
     # LIVE TRAFFIC
@@ -696,15 +774,13 @@ packets
 """
         )
 
-        with st.spinner(
-            "Running Analysis..."
-        ):
+        if st.session_state.analysis_results is None:
+            with st.spinner(
+                "Running Analysis..."
+            ):
+                st.session_state.analysis_results = run_analysis(packets_df)
 
-            results = (
-                run_analysis(
-                    packets_df
-                )
-            )
+        results = st.session_state.analysis_results
 
         # ==================================
         # METRICS
