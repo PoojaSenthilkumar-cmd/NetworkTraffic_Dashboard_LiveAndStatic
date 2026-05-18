@@ -32,37 +32,22 @@ from datetime import datetime
 from analyzer.parser import PcapParser
 from analyzer.rtt import RTTAnalyzer
 from analyzer.jitter import JitterAnalyzer
-from analyzer.reordering import (
-    ReorderingAnalyzer
-)
-from analyzer.tcp_analysis import (
-    TCPAnalyzer
-)
-from analyzer.throughput import (
-    ThroughputAnalyzer
-)
-from analyzer.flowmap import (
-    FlowMapper
-)
+from analyzer.reordering import (ReorderingAnalyzer)
+from analyzer.tcp_analysis import (TCPAnalyzer)
+from analyzer.throughput import (ThroughputAnalyzer)
+from analyzer.flowmap import (FlowMapper)
 
-from liveCaptureData.live_capture import (
-    LiveCaptureManager
-)
+from liveCaptureData.live_capture import (LiveCaptureManager)
 
 # ==========================================
 # Streamlit Config
 # ==========================================
 
 st.set_page_config(
-    page_title=
-    "Network Traffic Dashboard",
-
+    page_title= "Network Traffic Dashboard",
     page_icon="🌐",
-
     layout="wide",
-
-    initial_sidebar_state=
-    "expanded"
+    initial_sidebar_state="expanded"
 )
 
 # ==========================================
