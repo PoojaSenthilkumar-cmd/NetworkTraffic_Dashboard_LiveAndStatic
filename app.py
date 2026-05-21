@@ -661,7 +661,7 @@ Analysis Dashboard
             st.sidebar.slider(
                 "Capture Duration (seconds)",
                 10,
-                300,
+                5 * 60,
                 60,
                 step=10
             )
