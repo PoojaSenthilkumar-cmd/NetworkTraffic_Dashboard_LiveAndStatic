@@ -26,11 +26,13 @@ class LivePacketCapture:
     def __init__(
         self,
         packet_count=500,
-        interface=None
+        interface=None,
+        capture_timeout=60
     ):
 
         self.packet_count = packet_count
         self.interface = interface
+        self.capture_timeout = capture_timeout
 
         self.packets = []
 
@@ -52,149 +54,58 @@ class LivePacketCapture:
         try:
 
             packet_info = {
-                "timestamp":
-                    datetime.now(),
-
-                "size":
-                    int(len(packet)),
-
-                "src_ip":
-                    "",
-
-                "dst_ip":
-                    "",
-
-                "src_port":
-                    0,
-
-                "dst_port":
-                    0,
-
-                "protocol":
-                    "OTHER",
-
-                "flags":
-                    "",
-
-                "seq_num":
-                    None,
-
-                "ack_num":
-                    None,
-
-                "payload_size":
-                    0
+                "timestamp":datetime.now(),
+                "size":int(len(packet)),
+                "src_ip":"",
+                "dst_ip":"",
+                "src_port":0,
+                "dst_port":0,
+                "protocol":"OTHER",
+                "flags":"",
+                "seq_num":None,
+                "ack_num":None,
+                "payload_size":0
             }
 
             if IP in packet:
-
                 ip_layer = packet[IP]
-
-                packet_info[
-                    "src_ip"
-                ] = str(
-                    ip_layer.src
-                )
-
-                packet_info[
-                    "dst_ip"
-                ] = str(
-                    ip_layer.dst
-                )
+                packet_info["src_ip"] = str(ip_layer.src)
+                packet_info["dst_ip"] = str(ip_layer.dst)
 
                 # ---------------- TCP ----------------
-
                 if TCP in packet:
-
                     tcp = packet[TCP]
-
-                    packet_info[
-                        "protocol"
-                    ] = "TCP"
-
-                    packet_info[
-                        "src_port"
-                    ] = int(
-                        tcp.sport
-                    )
-
-                    packet_info[
-                        "dst_port"
-                    ] = int(
-                        tcp.dport
-                    )
-
-                    packet_info[
-                        "flags"
-                    ] = str(
-                        tcp.flags
-                    )
-
-                    packet_info[
-                        "seq_num"
-                    ] = (
+                    packet_info["protocol"] = "TCP"
+                    packet_info["src_port"] = int(tcp.sport)
+                    packet_info["dst_port"] = int(tcp.dport)
+                    packet_info["flags"] = str(tcp.flags)
+                    packet_info["seq_num"] = (
                         int(tcp.seq)
                         if tcp.seq
                         else None
                     )
-
-                    packet_info[
-                        "ack_num"
-                    ] = (
+                    packet_info["ack_num"] = (
                         int(tcp.ack)
                         if tcp.ack
                         else None
                     )
-
-                    payload = bytes(
-                        tcp.payload
-                    )
-
-                    packet_info[
-                        "payload_size"
-                    ] = len(
-                        payload
-                    )
+                    payload = bytes(tcp.payload)
+                    packet_info["payload_size"] = len(payload)
 
                 # ---------------- UDP ----------------
-
                 elif UDP in packet:
-
-                    udp = packet[
-                        UDP
-                    ]
-
-                    packet_info[
-                        "protocol"
-                    ] = "UDP"
-
-                    packet_info[
-                        "src_port"
-                    ] = int(
-                        udp.sport
-                    )
-
-                    packet_info[
-                        "dst_port"
-                    ] = int(
-                        udp.dport
-                    )
+                    udp = packet[UDP]
+                    packet_info["protocol"] = "UDP"
+                    packet_info["src_port"] = int(udp.sport)
+                    packet_info["dst_port"] = int(udp.dport)
 
                 # ---------------- ICMP ----------------
-
                 elif ICMP in packet:
 
-                    packet_info[
-                        "protocol"
-                    ] = "ICMP"
+                    packet_info["protocol"] = "ICMP"
 
-            self.packets.append(
-                packet_info
-            )
-
-            self.packet_queue.put(
-                packet_info
-            )
+            self.packets.append(packet_info)
+            self.packet_queue.put(packet_info)
 
         except Exception:
             pass
@@ -214,7 +125,7 @@ class LivePacketCapture:
                 iface=self.interface,
                 store=False,
                 count=self.packet_count,
-                timeout=300
+                timeout=self.capture_timeout
             )
 
         except Exception as e:
@@ -310,61 +221,28 @@ class LivePacketCapture:
         if len(df) > 1:
 
             duration = (
-                df[
-                    "timestamp"
-                ].max()
-                -
-                df[
-                    "timestamp"
-                ].min()
+                df["timestamp"].max()  
+                - df["timestamp"].min()
             ).total_seconds()
 
         return {
-
-            "total_packets":
-                len(df),
-
-            "capture_duration":
-                round(
-                    duration,
-                    2
-                ),
-
-            "avg_packet_size":
-                round(
-                    df[
-                        "size"
-                    ].mean(),
-                    2
-                ),
-
-            "total_bytes":
-                int(
-                    df[
-                        "size"
-                    ].sum()
-                )
+            "total_packets":len(df),
+            "capture_duration":round(duration,2),
+            "avg_packet_size":round(df["size"].mean(),2),
+            "total_bytes":int(df["size"].sum())
         }
 
     # =====================================
     # Helper Methods
     # =====================================
 
-    def get_packet_count(
-        self
-    ):
+    def get_packet_count(self):
 
-        return len(
-            self.packets
-        )
+        return len(self.packets)
 
-    def is_capturing(
-        self
-    ):
+    def is_capturing(self):
 
-        return (
-            self.capture_running
-        )
+        return (self.capture_running)
 
 
 # ==========================================
@@ -381,7 +259,8 @@ class LiveCaptureManager:
         self,
         session_id,
         packet_count=500,
-        interface=None
+        interface=None,
+        capture_timeout=60
     ):
 
         capture = (
@@ -389,7 +268,9 @@ class LiveCaptureManager:
                 packet_count=
                 packet_count,
                 interface=
-                interface
+                interface,
+                capture_timeout=
+                capture_timeout
             )
         )
 

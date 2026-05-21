@@ -29,7 +29,7 @@ from datetime import datetime
 # Analyzer Imports
 # ==========================================
 
-from analyzer.parser import PcapParser
+# from analyzer.parser import PcapParser
 from analyzer.parser_optimized import OptimizedPcapParser
 from analyzer.rtt import RTTAnalyzer
 from analyzer.jitter import JitterAnalyzer
@@ -219,80 +219,42 @@ def run_analysis(
 # RTT Plot
 # ==========================================
 
-def plot_rtt(
-    rtt_df
-):
+def plot_rtt(rtt_df):
 
     if rtt_df.empty:
-        st.warning(
-            "No RTT data"
-        )
+        st.warning("No RTT data")
         return
 
     colors = []
 
-    for rtt in (
-        rtt_df[
-            "rtt_ms"
-        ]
-    ):
-
+    for rtt in (rtt_df["rtt_ms"]):
         if rtt < 50:
-            colors.append(
-                "green"
-            )
-
+            colors.append("green")
         elif rtt < 100:
-            colors.append(
-                "orange"
-            )
-
+            colors.append("orange")
         else:
-            colors.append(
-                "red"
-            )
+            colors.append("red")
 
     fig = go.Figure()
 
     fig.add_trace(
-        go.Scatter(
-            x=rtt_df[
-                "timestamp"
-            ],
-
-            y=rtt_df[
-                "rtt_ms"
-            ],
-
-            mode=
-            "markers+lines",
-
+        go.Scatter(x=rtt_df["timestamp"],y=rtt_df["rtt_ms"],
+            mode="markers+lines", 
             marker=dict(
                 color=colors,
                 size=6
             ),
-
             name="RTT"
         )
     )
 
-    fig.update_layout(
-        title=
-        "RTT Over Time",
-
-        xaxis_title=
-        "Time",
-
-        yaxis_title=
-        "RTT (ms)",
-
-        height=450
+    fig.update_layout(title="RTT Over Time",
+                      xaxis_title="Time",
+                      yaxis_title="RTT (ms)",
+                      height=450
     )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
+    st.plotly_chart(fig,use_container_width=True)
 
 
 # ==========================================
@@ -689,10 +651,19 @@ Analysis Dashboard
         packet_count = (
             st.sidebar.slider(
                 "Packets",
-
                 100,
                 5000,
                 1000
+            )
+        )
+
+        capture_timeout = (
+            st.sidebar.slider(
+                "Capture Duration (seconds)",
+                10,
+                300,
+                60,
+                step=10
             )
         )
 
@@ -710,7 +681,9 @@ Analysis Dashboard
                     "session1",
 
                     packet_count=
-                    packet_count
+                    packet_count,
+                    capture_timeout=
+                    capture_timeout
                 )
             )
 

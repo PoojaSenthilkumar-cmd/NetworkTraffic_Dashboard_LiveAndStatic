@@ -17,9 +17,7 @@ class RTTAnalyzer:
 
     def analyze(self):
 
-        tcp = self.df[
-            self.df["protocol"] == "TCP"
-        ].copy()
+        tcp = self.df[self.df["protocol"] == "TCP"].copy()
 
         if tcp.empty:
             return {}
@@ -50,10 +48,7 @@ class RTTAnalyzer:
 
                 seq = pkt["seq_num"]
                 ack = pkt["ack_num"]
-                payload_size = pkt.get(
-                    "payload_size",
-                    0
-                )
+                payload_size = pkt.get("payload_size",0)
 
                 timestamp = pkt["timestamp"]
 
@@ -61,17 +56,8 @@ class RTTAnalyzer:
                 # Track outgoing packets
                 # --------------------------
                 if pd.notna(seq):
-
-                    expected_ack = (
-                        seq + max(payload_size, 1)
-                    )
-
-                    outstanding_packets[
-                        (
-                            flow_key,
-                            expected_ack
-                        )
-                    ] = {
+                    expected_ack = (seq + max(payload_size, 1))
+                    outstanding_packets[(flow_key,expected_ack)] = {
                         "timestamp": timestamp,
                         "src_ip": pkt["src_ip"],
                         "dst_ip": pkt["dst_ip"],
@@ -82,43 +68,21 @@ class RTTAnalyzer:
                 # Match ACK packet
                 # --------------------------
                 if pd.notna(ack):
-
-                    key = (
-                        reverse_flow,
-                        ack
-                    )
-
+                    key = (reverse_flow, ack)
                     if key in outstanding_packets:
-
                         original = outstanding_packets[key]
-
-                        rtt = (
-                            timestamp
-                            - original["timestamp"]
-                        ).total_seconds() * 1000
-
+                        rtt = (timestamp - 
+                               original["timestamp"]
+                               ).total_seconds() * 1000
                         # sanity check
                         if 0 < rtt < 5000:
-
                             rtt_results.append({
-                                "timestamp":
-                                    timestamp,
-                                "rtt_ms":
-                                    rtt,
-                                "src_ip":
-                                    original[
-                                        "src_ip"
-                                    ],
-                                "dst_ip":
-                                    original[
-                                        "dst_ip"
-                                    ],
-                                "packet_size":
-                                    original[
-                                        "size"
-                                    ]
+                                "timestamp":timestamp,
+                                "rtt_ms":rtt,
+                                "src_ip":original["src_ip"],
+                                "dst_ip":original["dst_ip"],
+                                "packet_size":original["size"]
                             })
-
                             del outstanding_packets[key]
 
             except Exception:
@@ -132,12 +96,9 @@ class RTTAnalyzer:
             return {}
 
         return {
-            "dataframe":
-                self.rtt_data,
-            "statistics":
-                self._stats(),
-            "color_zones":
-                self._zones()
+            "dataframe":self.rtt_data,
+            "statistics":self._stats(),
+            "color_zones":self._zones()
         }
 
     def _stats(self):
