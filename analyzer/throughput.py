@@ -76,7 +76,7 @@ class ThroughputAnalyzer:
         ]
 
         # Remove idle windows
-        tp = tp[tp > 0]
+        # tp = tp[tp > 0]
 
         if len(tp) < 10:
             return {
