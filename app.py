@@ -237,11 +237,11 @@ def plot_jitter(
         )
         return
 
-    fig = px.line(
+    fig = px.bar(
         jitter_df,
-        x="timestamp",
+        x="flow",
         y="jitter_ms_rfc3550",
-        title="Time vs Jitter (RFC 3550)"
+        title="Jitter by Flow (RFC 3550)"
     )
 
     st.plotly_chart(
@@ -744,6 +744,8 @@ packets
                         packets_df,
                         throughput_window=throughput_window
                     )
+
+        results = st.session_state.analysis_results
         # METRICS
         # ==================================
 
