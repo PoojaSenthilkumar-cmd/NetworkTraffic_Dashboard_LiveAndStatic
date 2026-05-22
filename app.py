@@ -152,65 +152,31 @@ def load_pcap_with_progress(file_path, file_name):
     show_spinner=False
 )
 def run_analysis(
-    packets_df
+    packets_df,
+    throughput_window=5000
 ):
 
     results = {}
 
     # RTT
-    results[
-        "rtt"
-    ] = (
-        RTTAnalyzer(
-            packets_df
-        ).analyze()
-    )
+    rtt_result = RTTAnalyzer(packets_df).analyze()
+    results["rtt"] = rtt_result
+    rtt_df = rtt_result.get("dataframe", pd.DataFrame()) if rtt_result else pd.DataFrame()
 
     # Jitter
-    results[
-        "jitter"
-    ] = (
-        JitterAnalyzer(
-            packets_df
-        ).analyze()
-    )
+    results["jitter"] = JitterAnalyzer(packets_df).analyze()
 
     # Reordering
-    results[
-        "reordering"
-    ] = (
-        ReorderingAnalyzer(
-            packets_df
-        ).analyze()
-    )
+    results["reordering"] = ReorderingAnalyzer(packets_df).analyze()
 
     # TCP
-    results[
-        "tcp"
-    ] = (
-        TCPAnalyzer(
-            packets_df
-        )
-        .get_all_tcp_analysis()
-    )
+    results["tcp"] = TCPAnalyzer(packets_df).get_all_tcp_analysis()
 
     # Throughput
-    results[
-        "throughput"
-    ] = (
-        ThroughputAnalyzer(
-            packets_df
-        ).analyze()
-    )
+    results["throughput"] = ThroughputAnalyzer(packets_df).analyze(time_window_ms=throughput_window)
 
     # Flow map
-    results[
-        "flowmap"
-    ] = (
-        FlowMapper(
-            packets_df
-        ).analyze()
-    )
+    results["flowmap"] = FlowMapper(packets_df, rtt_data=rtt_df).analyze()
 
     return results
 
@@ -273,13 +239,9 @@ def plot_jitter(
 
     fig = px.line(
         jitter_df,
-
         x="timestamp",
-
-        y="jitter_ms",
-
-        title=
-        "Time vs Jitter"
+        y="jitter_ms_rfc3550",
+        title="Time vs Jitter (RFC 3550)"
     )
 
     st.plotly_chart(
@@ -304,20 +266,34 @@ def plot_throughput(
 
     fig = px.line(
         throughput_df,
-
         x="timestamp",
-
-        y=
-        "throughput_mbps",
-
-        title=
-        "Throughput Stability"
+        y="throughput_mbps",
+        title="Throughput Stability"
     )
 
     st.plotly_chart(
         fig,
         use_container_width=True
     )
+
+
+def compare_rtt_vs_jitter(rtt_df, jitter_df):
+    return {
+        "rtt_metrics": {
+            "mean_ms": rtt_df["rtt_ms"].mean(),
+            "std_ms": rtt_df["rtt_ms"].std(),
+            "min_ms": rtt_df["rtt_ms"].min(),
+            "max_ms": rtt_df["rtt_ms"].max(),
+            "explanation": "RTT measures round-trip latency for packet pairs."
+        },
+        "jitter_metrics": {
+            "mean_ms": jitter_df["jitter_ms_rfc3550"].mean(),
+            "std_ms": jitter_df["jitter_ms_rfc3550"].std(),
+            "min_ms": jitter_df["jitter_ms_rfc3550"].min(),
+            "max_ms": jitter_df["jitter_ms_rfc3550"].max(),
+            "explanation": "Jitter measures variance in packet arrival spacing over time."
+        }
+    }
 
 
 # ==========================================
@@ -471,22 +447,20 @@ def show_causality(results):
     )
 
     if throughput:
+        stability_metric = throughput.get("stability_metric", {})
+        stability = stability_metric.get("stability_classification")
+        is_burst_event = stability_metric.get("is_burst_event", False)
 
-        stability = throughput[
-            "stability_metric"
-        ][
-            "stability_classification"
-        ]
-
-        if stability in [
+        if is_burst_event or stability in [
             "Moderate",
+            "High Variability",
+            "Burst Traffic",
             "Unstable"
         ]:
-
             events.append(
                 (
                     "Throughput Instability",
-                    stability
+                    stability or "Anomalous"
                 )
             )
 
@@ -552,6 +526,21 @@ Analysis Dashboard
     st.sidebar.title(
         "Configuration"
     )
+
+    throughput_window = st.sidebar.slider(
+        "Throughput Window (ms)",
+        1000,
+        10000,
+        5000,
+        step=1000
+    )
+
+    if (
+        'throughput_window' not in st.session_state
+        or st.session_state.throughput_window != throughput_window
+    ):
+        st.session_state.throughput_window = throughput_window
+        st.session_state.analysis_results = None
 
     mode = (
         st.sidebar.radio(
@@ -751,11 +740,10 @@ packets
             with st.spinner(
                 "Running Analysis..."
             ):
-                st.session_state.analysis_results = run_analysis(packets_df)
-
-        results = st.session_state.analysis_results
-
-        # ==================================
+                    st.session_state.analysis_results = run_analysis(
+                        packets_df,
+                        throughput_window=throughput_window
+                    )
         # METRICS
         # ==================================
 
@@ -834,37 +822,82 @@ packets
                 "RTT Analysis"
             )
 
-            rtt = results[
-                "rtt"
-            ]
-
+            rtt = results["rtt"]
             if rtt:
+                rtt_df = rtt["dataframe"]
+                rtt_stats = rtt["statistics"]
 
-                plot_rtt(
-                    rtt[
-                        "dataframe"
-                    ]
-                )
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric(
+                        "Mean RTT",
+                        f"{rtt_stats['mean_rtt']:.2f} ms",
+                        delta=f"±{rtt_stats['std_rtt']:.2f} ms"
+                    )
+                with col2:
+                    st.metric("Median RTT", f"{rtt_stats['median_rtt']:.2f} ms")
+                with col3:
+                    st.metric("Max RTT", f"{rtt_stats['max_rtt']:.2f} ms")
+                with col4:
+                    st.metric("RTT Samples", f"{rtt_stats['count']}")
 
-            st.markdown(
-                "---"
-            )
+                plot_rtt(rtt_df)
+
+            st.markdown("---")
 
             st.subheader(
                 "Jitter Analysis"
             )
 
-            jitter = results[
-                "jitter"
-            ]
-
+            jitter = results["jitter"]
             if jitter:
+                jitter_df = jitter["dataframe"]
+                jitter_stats = jitter["statistics"]
 
-                plot_jitter(
-                    jitter[
-                        "dataframe"
-                    ]
-                )
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric(
+                        "Mean Jitter",
+                        f"{jitter_stats['mean_jitter_ms']:.2f} ms"
+                    )
+                with col2:
+                    st.metric(
+                        "Median Jitter",
+                        f"{jitter_stats['median_jitter_ms']:.2f} ms"
+                    )
+                with col3:
+                    st.metric(
+                        "Max Jitter",
+                        f"{jitter_stats['max_jitter_ms']:.2f} ms"
+                    )
+                with col4:
+                    st.metric(
+                        "Flows Analyzed",
+                        f"{jitter_stats['total_flows']}"
+                    )
+
+                plot_jitter(jitter_df)
+
+            if rtt and jitter:
+                compare = compare_rtt_vs_jitter(rtt_df, jitter_df)
+                st.markdown("---")
+                st.subheader("RTT vs Jitter Comparison")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("### 📏 RTT (Latency)")
+                    st.write(f"**Mean:** {compare['rtt_metrics']['mean_ms']:.2f} ms")
+                    st.write(f"**Std Dev:** {compare['rtt_metrics']['std_ms']:.2f} ms")
+                    st.write(f"**Min:** {compare['rtt_metrics']['min_ms']:.2f} ms")
+                    st.write(f"**Max:** {compare['rtt_metrics']['max_ms']:.2f} ms")
+                    st.write(compare['rtt_metrics']['explanation'])
+                with col2:
+                    st.markdown("### 🌊 Jitter (Variance)")
+                    st.write(f"**Mean:** {compare['jitter_metrics']['mean_ms']:.2f} ms")
+                    st.write(f"**Std Dev:** {compare['jitter_metrics']['std_ms']:.2f} ms")
+                    st.write(f"**Min:** {compare['jitter_metrics']['min_ms']:.2f} ms")
+                    st.write(f"**Max:** {compare['jitter_metrics']['max_ms']:.2f} ms")
+                    st.write(compare['jitter_metrics']['explanation'])
 
         # ==================================
         # TAB 2
@@ -952,15 +985,26 @@ Connections
                     ]
                 )
 
+                stability_metric = throughput[
+                    "stability_metric"
+                ]
+
                 st.metric(
                     "Stability",
-
-                    throughput[
-                        "stability_metric"
-                    ][
+                    stability_metric[
                         "stability_classification"
                     ]
                 )
+
+                if stability_metric.get("is_burst_event"):
+                    st.warning(
+                        f"⚠️ {stability_metric['anomalies_detected']} abnormal burst(s) detected"
+                    )
+
+                if stability_metric.get("recommendation"):
+                    st.write(
+                        stability_metric["recommendation"]
+                    )
 
         # ==================================
         # TAB 4

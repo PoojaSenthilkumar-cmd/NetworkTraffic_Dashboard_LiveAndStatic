@@ -178,96 +178,74 @@ class TCPAnalyzer:
 
             packets = packets.sort_values(
                 "timestamp"
-            )
+            ).reset_index(drop=True)
 
-            ack_counter = defaultdict(
-                list
-            )
+            ack_sequence = []
 
-            for _, pkt in (
-                packets.iterrows()
-            ):
-
-                ack = pkt[
-                    "ack_num"
-                ]
+            for _, pkt in packets.iterrows():
+                ack = pkt["ack_num"]
+                timestamp = pkt["timestamp"]
 
                 if pd.notna(ack):
-                    ack_counter[
-                        ack
-                    ].append(
-                        pkt[
-                            "timestamp"
-                        ]
-                    )
+                    ack_sequence.append({
+                        "ack": ack,
+                        "timestamp": timestamp
+                    })
 
-            for (
-                ack,
-                times
-            ) in ack_counter.items():
+            if len(ack_sequence) < 3:
+                continue
 
-                if len(times) >= 3:
+            i = 0
+            while i < len(ack_sequence) - 2:
+                if (
+                    ack_sequence[i]["ack"] == ack_sequence[i + 1]["ack"] ==
+                    ack_sequence[i + 2]["ack"]
+                ):
+                    ack_num = ack_sequence[i]["ack"]
+                    start_time = ack_sequence[i]["timestamp"]
+                    dup_count = 3
+                    j = i + 3
+
+                    while j < len(ack_sequence) and ack_sequence[j]["ack"] == ack_num:
+                        if (
+                            ack_sequence[j]["timestamp"] - start_time
+                        ).total_seconds() <= 0.2:
+                            dup_count += 1
+                            j += 1
+                        else:
+                            break
 
                     burst_time = (
-                        times[-1]
-                        - times[0]
+                        ack_sequence[j - 1]["timestamp"] - start_time
                     ).total_seconds()
 
-                    if burst_time <= 1:
-
-                        count = len(
-                            times
-                        )
-
+                    if burst_time <= 0.2:
                         retrans_events.append({
-                            "timestamp":
-                                times[0],
-                            "flow":
-                                (
-                                    f"{flow[0]}"
-                                    f":{flow[2]}"
-                                    f" -> "
-                                    f"{flow[1]}"
-                                    f":{flow[3]}"
-                                ),
-                            "ack_number":
-                                ack,
-                            "duplicate_count":
-                                count,
-                            "severity":
-                                (
-                                    "High"
-                                    if count >= 5
-                                    else "Medium"
-                                )
+                            "timestamp": start_time,
+                            "flow": (
+                                f"{flow[0]}:{flow[2]} -> {flow[1]}:{flow[3]}"
+                            ),
+                            "ack_number": ack_num,
+                            "duplicate_count": dup_count,
+                            "severity": "High" if dup_count >= 3 else "Low",
+                            "time_window_ms": round(burst_time * 1000, 2)
                         })
 
-        df = pd.DataFrame(
-            retrans_events
-        )
+                    i = j
+                else:
+                    i += 1
+
+        df = pd.DataFrame(retrans_events)
 
         if df.empty:
             return {}
 
         return {
-            "dataframe":
-                df,
+            "dataframe": df,
             "statistics": {
-                "total_bursts":
-                    len(df),
-                "mean_duplicates_per_burst":
-                    df[
-                        "duplicate_count"
-                    ].mean(),
-                "high_severity_bursts":
-                    len(
-                        df[
-                            df[
-                                "severity"
-                            ]
-                            == "High"
-                        ]
-                    )
+                "total_bursts": len(df),
+                "mean_duplicates_per_burst": df["duplicate_count"].mean(),
+                "high_severity_bursts": len(df[df["severity"] == "High"])
             }
         }
 
@@ -282,137 +260,86 @@ class TCPAnalyzer:
 
         packets = (
             self.tcp_packets
-            .sort_values(
-                "timestamp"
-            )
-            .reset_index(
-                drop=True
-            )
+            .sort_values("timestamp")
+            .reset_index(drop=True)
         )
 
+        syn_tracker = {}
         half_open = []
 
-        for idx, pkt in (
-            packets.iterrows()
-        ):
+        for _, pkt in packets.iterrows():
+            flags = str(pkt["flags"])
+            src_ip = pkt["src_ip"]
+            dst_ip = pkt["dst_ip"]
+            src_port = pkt["src_port"]
+            dst_port = pkt["dst_port"]
+            timestamp = pkt["timestamp"]
 
-            flags = str(
-                pkt["flags"]
-            )
+            flow_key = (src_ip, src_port, dst_ip, dst_port)
+            reverse_key = (dst_ip, dst_port, src_ip, src_port)
 
-            # SYN only
-            if (
-                "S" in flags
-                and "A" not in flags
-            ):
+            if "S" in flags and "A" not in flags:
+                syn_tracker[flow_key] = {
+                    "timestamp": timestamp,
+                    "synack_seen": False,
+                    "ack_seen": False
+                }
 
-                src_ip = pkt[
-                    "src_ip"
-                ]
-                dst_ip = pkt[
-                    "dst_ip"
-                ]
-                src_port = pkt[
-                    "src_port"
-                ]
-                dst_port = pkt[
-                    "dst_port"
-                ]
+            elif "S" in flags and "A" in flags:
+                if reverse_key in syn_tracker:
+                    syn_tracker[reverse_key]["synack_seen"] = True
 
-                timestamp = pkt[
-                    "timestamp"
-                ]
+            elif "A" in flags and "S" not in flags:
+                if flow_key in syn_tracker:
+                    syn_tracker[flow_key]["ack_seen"] = True
 
-                future = packets[
-                    packets[
-                        "timestamp"
-                    ]
-                    > timestamp
-                ].head(50)
+        for flow_key, state in syn_tracker.items():
+            syn_time = state["timestamp"]
+            synack_seen = state["synack_seen"]
+            ack_seen = state["ack_seen"]
+            src_ip, src_port, dst_ip, dst_port = flow_key
 
-                synack = future[
-                    (
-                        future[
-                            "src_ip"
-                        ]
-                        == dst_ip
-                    )
-                    &
-                    (
-                        future[
-                            "dst_ip"
-                        ]
-                        == src_ip
-                    )
-                ]
+            if not synack_seen:
+                half_open.append({
+                    "timestamp": syn_time,
+                    "flow": f"{src_ip}:{src_port} -> {dst_ip}:{dst_port}",
+                    "src_ip": src_ip,
+                    "dst_ip": dst_ip,
+                    "src_port": src_port,
+                    "dst_port": dst_port,
+                    "issue": "SYN without SYNACK",
+                    "severity": "High"
+                })
+            elif synack_seen and not ack_seen:
+                half_open.append({
+                    "timestamp": syn_time,
+                    "flow": f"{src_ip}:{src_port} -> {dst_ip}:{dst_port}",
+                    "src_ip": src_ip,
+                    "dst_ip": dst_ip,
+                    "src_port": src_port,
+                    "dst_port": dst_port,
+                    "issue": "SYNACK received but no ACK",
+                    "severity": "Medium"
+                })
 
-                synack_found = False
-                ack_found = False
-
-                for _, p in (
-                    synack.iterrows()
-                ):
-
-                    flg = str(
-                        p["flags"]
-                    )
-
-                    if (
-                        "S" in flg
-                        and "A" in flg
-                    ):
-                        synack_found = True
-
-                    if (
-                        flg == "A"
-                    ):
-                        ack_found = True
-
-                if (
-                    synack_found
-                    and not ack_found
-                ):
-
-                    half_open.append({
-                        "timestamp":
-                            timestamp,
-                        "flow":
-                            (
-                                f"{src_ip}"
-                                f":{src_port}"
-                                f" -> "
-                                f"{dst_ip}"
-                                f":{dst_port}"
-                            ),
-                        "src_ip":
-                            src_ip,
-                        "dst_ip":
-                            dst_ip,
-                        "src_port":
-                            src_port,
-                        "dst_port":
-                            dst_port,
-                        "issue":
-                            "Missing ACK"
-                    })
-
-        df = pd.DataFrame(
-            half_open
-        )
+        df = pd.DataFrame(half_open)
 
         if df.empty:
             return {}
 
         return {
-            "dataframe":
-                df,
+            "dataframe": df,
             "statistics": {
-                "total_half_open":
-                    len(df),
-                "unique_flows":
-                    df[
-                        "flow"
-                    ].nunique()
+                "total_half_open": len(df),
+                "unique_flows": df["flow"].nunique(),
+                "severity_distribution": {
+                    "high": len(df[df["severity"] == "High"]),
+                    "medium": len(df[df["severity"] == "Medium"])
+                },
+                "note": (
+                    "Half-open connections are rare in normal traffic. "
+                    "High counts suggest port scanning or network issues."
+                )
             }
         }
 
