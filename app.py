@@ -267,6 +267,39 @@ def plot_throughput(
         st.warning(
             "No throughput data"
         )
+        st.caption(
+            "Throughput analysis returned an empty dataframe. Check that packets include timestamp and size values."
+        )
+        return
+
+    required_columns = {
+        "timestamp",
+        "throughput_mbps"
+    }
+    missing_columns = required_columns - set(throughput_df.columns)
+    if missing_columns:
+        st.warning(
+            f"Throughput data is missing required column(s): {', '.join(sorted(missing_columns))}"
+        )
+        st.caption(
+            f"Available columns: {', '.join(throughput_df.columns)}"
+        )
+        return
+
+    plot_df = throughput_df.dropna(
+        subset=[
+            "timestamp",
+            "throughput_mbps"
+        ]
+    ).copy()
+
+    if plot_df.empty:
+        st.warning(
+            "No plottable throughput datapoints"
+        )
+        st.caption(
+            "All throughput rows are missing timestamp or throughput_mbps values."
+        )
         return
 
     classification = (
@@ -274,10 +307,11 @@ def plot_throughput(
     ).get("stability_classification", "Stable")
 
     fig = px.line(
-        throughput_df,
+        plot_df,
         x="timestamp",
         y="throughput_mbps",
-        title=f"Throughput Stability - {classification}"
+        title=f"Throughput Stability - {classification}",
+        markers=True
     )
 
     fig.add_hline(
@@ -288,8 +322,8 @@ def plot_throughput(
         annotation_position="top left"
     )
 
-    abnormal_points = throughput_df[
-        throughput_df["throughput_mbps"] > ACCEPTABLE_THRESHOLD_MBPS
+    abnormal_points = plot_df[
+        plot_df["throughput_mbps"] > ACCEPTABLE_THRESHOLD_MBPS
     ]
 
     if not abnormal_points.empty:
@@ -670,9 +704,11 @@ Analysis Dashboard
         )
 
         capture_timeout = selected_time_window
-        throughput_window = selected_time_window * 1000
+        # Live slider controls capture duration; throughput analyzer expects a millisecond bucket size.
+        throughput_window = CAPTURED_THROUGHPUT_WINDOW_MS
         analysis_config_key = {
             "mode": mode,
+            "capture_timeout": capture_timeout,
             "throughput_window": throughput_window
         }
 

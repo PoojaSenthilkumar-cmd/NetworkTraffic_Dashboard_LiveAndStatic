@@ -5,9 +5,11 @@ Throughput stability analysis.
 
 import pandas as pd
 from datetime import timedelta
+import logging
 
 
 ACCEPTABLE_THRESHOLD_MBPS = 25.0
+logger = logging.getLogger(__name__)
 
 
 class ThroughputAnalyzer:
@@ -19,7 +21,24 @@ class ThroughputAnalyzer:
     def analyze(self, time_window_ms=5000):
 
         if self.df.empty:
+            logger.warning("Throughput analysis skipped: packets dataframe is empty")
             return {}
+
+        required_columns = {"timestamp", "size"}
+        missing_columns = required_columns - set(self.df.columns)
+        if missing_columns:
+            logger.warning(
+                "Throughput analysis skipped: missing required columns %s",
+                sorted(missing_columns)
+            )
+            return {}
+
+        if time_window_ms <= 0:
+            logger.warning(
+                "Invalid throughput time window %s ms; using default 5000 ms",
+                time_window_ms
+            )
+            time_window_ms = 5000
 
         packets = self.df.sort_values("timestamp")
         start_time = packets["timestamp"].min()
@@ -28,7 +47,7 @@ class ThroughputAnalyzer:
         throughput_results = []
         current_time = start_time
 
-        while current_time < end_time:
+        while current_time <= end_time:
             window_end = current_time + delta
             window_packets = packets[
                 (packets["timestamp"] >= current_time) &
@@ -46,6 +65,16 @@ class ThroughputAnalyzer:
             current_time = window_end
 
         self.throughput_data = pd.DataFrame(throughput_results)
+
+        if self.throughput_data.empty:
+            logger.warning(
+                "Throughput analysis produced no datapoints for %s packet(s), "
+                "start_time=%s, end_time=%s, time_window_ms=%s",
+                len(packets),
+                start_time,
+                end_time,
+                time_window_ms
+            )
 
         return {
             "dataframe": self.throughput_data,
