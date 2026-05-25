@@ -1,56 +1,82 @@
-# 🌐 Network Traffic Analysis Dashboard
+# Network Traffic Behavior & Causality Dashboard
 
-A comprehensive Streamlit-based dashboard for visualizing and analyzing network traffic behavior from both captured PCAP files and live network data.
+A Streamlit-based dashboard for analyzing **5-minute captured traffic** and **live network traffic** to visualize network behavior, detect anomalies, and understand traffic causality in real time.
 
-## 📊 Dashboard Features
+## Features
 
-The dashboard provides real-time analysis of 8 key network metrics:
+### RTT (Round Trip Time)
+- Visualizes RTT trends over time
+- Color-coded latency zones:
+  - 🔴 High RTT
+  - 🟠 Medium RTT
+  - 🟢 Normal RTT
+- Detects latency spikes and network delays
 
-### 1. **RTT (Round Trip Time) Analysis** 
-   - **What it is**: Latency between request and response
-   - **Color Zones**:
-     - 🟢 Green: Low RTT < 50ms (Excellent)
-     - 🟠 Orange: Medium RTT 50-100ms (Good)
-     - 🔴 Red: High RTT > 100ms (Poor/Congestion)
-   - **Why it matters**: Indicates network quality and congestion
+### Jitter Analysis
+- Displays **Time vs Jitter** graph
+- Measures packet delay variation
+- Helps identify unstable network performance
 
-### 2. **Jitter Analysis**
-   - **What it is**: Variation in packet delay over time
-   - **Why it matters**: High jitter causes voice/video quality issues
-   - **Visualization**: Time vs Jitter graph
+### Packet Reordering Frequency
+- Detects out-of-order packet arrivals
+- Calculates packet reordering frequency
+- Useful for diagnosing routing or congestion issues
 
-### 3. **Packet Reordering Detection**
-   - **What it is**: Packets arriving out-of-sequence
-   - **Why it matters**: Indicates routing issues or network congestion
-   - **Frequency**: Shows how often reordering occurs
+### TCP Slow Start Duration
+- Identifies TCP slow start behavior
+- Estimates connection ramp-up duration
+- Helps analyze TCP performance efficiency
 
-### 4. **TCP Slow Start Duration**
-   - **What it is**: Time for TCP connection to ramp up to full speed
-   - **Why it matters**: Indicates initial connection quality
-   - **Identification**: Tracks connection initialization phase
+### Retransmission Burst Detection
+- Detects abnormal retransmission bursts
+- Highlights possible packet loss or duplicate ACK events
+- Differentiates normal retransmissions from burst anomalies
 
-### 5. **Retransmission Bursts** (Duplicate ACKs)
-   - **What it is**: Multiple retransmissions of same data
-   - **Why it matters**: Sign of network congestion/packet loss
-   - **Severity Levels**: Medium (3-5 duplicates) / High (5+ duplicates)
+### Half-Open Connection Detection
+- Detects incomplete TCP three-way handshakes
+- Identifies missing ACK scenarios
+- Helps diagnose connection failures and abnormal traffic
 
-### 6. **Half-Open Connections**
-   - **What it is**: TCP handshake missing final ACK
-   - **Why it matters**: Indicates connection establishment failures
-   - **Detection**: Monitors 3-way handshake completion
+### Throughput Stability Analysis
+- Displays **Time vs Throughput** graph
+- Monitors throughput consistency over time
+- Detects actual abnormal throughput bursts
+- Avoids false instability alerts caused by small throughput variations
 
-### 7. **Throughput Stability**
-   - **What it is**: Data transfer rate over time
-   - **Stability Score**: 0-100% (higher = more stable)
-   - **Why it matters**: Shows network consistency
+### Flow Map Table
+Displays:
+- Source/Destination pair
+- Protocol type
+- Latency information
+- Traffic classification:
+  - Internal network traffic
+  - External network traffic
 
-### 8. **Flow Map Table**
-   - **Contents**: Source/Destination pairs with:
-     - Protocol (TCP/UDP/ICMP)
-     - Latency per flow
-     - Traffic classification (Internal/External)
-     - Identified service
-     - Data transferred
+## Supported Modes
+
+### 1. Captured Traffic Analysis
+- Analyze previously captured `.pcap` / `.pcapng` files
+- Generates detailed network behavior insights
+
+### 2. Live Traffic Capture
+- Captures and analyzes real-time network traffic
+- Dynamically updates visualizations and metrics
+- Can export captured traffic data for further analysis
+
+## Objective
+
+The dashboard is designed to visualize the **behavior and causality of network traffic** by combining traffic metrics, anomaly detection, and real-time insights from both captured datasets and live traffic.
+
+## Tech Stack
+- Python
+- Streamlit
+- Scapy
+- Pandas
+- Matplotlib / Plotly
+
+## Input Requirements
+- Captured traffic: `.pcap` or `.pcapng`
+- Live mode: active network traffic for real-time analysis
 
 ---
 
@@ -61,38 +87,17 @@ The dashboard provides real-time analysis of 8 key network metrics:
 - pip (Python package manager)
 - Administrator privileges (for live packet capture)
 
-### Installation
-
-**1. Navigate to project directory:**
-```bash
-cd TASK4_STREAMLITDASHBOARD
-```
-
-**2. Create virtual environment:**
-
-*On Windows:*
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-*On macOS/Linux:*
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-**3. Install dependencies:**
+**1. Install dependencies:**
 ```bash
 pip install -r requirements.txt
 ```
 
-**4. Run the dashboard:**
+**2. Run the dashboard:**
 ```bash
 streamlit run app.py
 ```
 
-**5. Open in browser:**
+**3. Open in browser:**
 - Automatically opens at `http://localhost:8501`
 - If not, manually navigate to that URL
 
@@ -116,7 +121,7 @@ TASK4_STREAMLITDASHBOARD/
 │   └── live_capture.py         # Real-time packet capture
 │
 ├── capturedData/
-│   └── network_traffic_capture_5min.pcap  # Your captured traffic file
+│   └── network_traffic_captured.pcap  # Your captured traffic file
 │
 ├── app.py                      # Main Streamlit dashboard (MAIN FILE)
 ├── requirements.txt            # Python dependencies
@@ -145,11 +150,10 @@ TASK4_STREAMLITDASHBOARD/
 ### **Option 2: Capture Live Traffic**
 
 1. **Launch the app**
-2. **Sidebar**: Select "📡 Live Capture"
+2. **Sidebar**: Select " Live Capture"
 3. **Configure**:
-   - Set "Capture Duration" (10-300 seconds)
-   - Set "Packet Limit" (10-10,000 packets)
-4. **Start**: Click "🔴 Start Live Capture" button
+   - Set "Time window (seconds)" (10-300 seconds)
+4. **Start**: Click "Start Live Capture" button
 5. **Monitor**: Progress bar shows capture progress
 6. **Analyze**: Same tabs available as PCAP analysis
 
@@ -212,45 +216,6 @@ Columns explained:
 
 ---
 
-## 🔧 Configuration & Customization
-
-### **Modify College Network Ranges**
-
-In `analyzer/flowmap.py`, find this section:
-
-```python
-COLLEGE_NETWORKS = [
-    '192.168.0.0/16',      # Change these to your college's IP ranges
-    '10.0.0.0/8',
-    '172.16.0.0/12',
-    '202.130.0.0/16',
-]
-```
-
-Replace with your actual college network CIDR ranges.
-
-### **Change Analysis Time Windows**
-
-In `app.py`, find the throughput analysis call:
-
-```python
-results['throughput'] = throughput_analyzer.analyze(time_window_ms=1000)  # Change 1000 to desired ms
-```
-
-### **Adjust Color Thresholds**
-
-In `analyzer/rtt.py`, modify the `_get_color_zones()` method:
-
-```python
-return {
-    'green': {'range': (0, 50), ...},      # Change 50 to desired threshold
-    'orange': {'range': (50, 100), ...},   # Change these ranges
-    'red': {'range': (100, float('inf')), ...},
-}
-```
-
----
-
 ## 📝 Output Files
 
 When you export data (in "Export Data" tab), files are saved as:
@@ -280,7 +245,7 @@ Each CSV includes:
 
 ### **Issue: "Failed to parse PCAP file"**
 **Solution**:
-- Ensure file is valid `.pcap` format (not `.pcapng`)
+- Ensure file is valid `.pcap` or `.pcapng` format
 - File must contain network packets
 - Try with different PCAP file
 
@@ -306,50 +271,64 @@ Each CSV includes:
 ## 📚 Technical Details
 
 ### **How RTT is Calculated**
-1. Find pairs of outgoing request packets (SYN or data) and incoming acknowledgments
-2. Match them using sequence/acknowledgment numbers
-3. Calculate time difference between pair
-4. Filter outliers (< 10,000 ms)
+1. TCP packets are grouped into flows
+2. Request–response packet pairs are identified using TCP sequence and acknowledgment relationships
+3. RTT is calculated as the time difference between matched packet events
+4. High RTT thresholds are dynamically used to classify latency zones:
+   - 🔴 High RTT
+   - 🟠 Medium RTT
+   - 🟢 Normal RTT
+5. RTT spikes are highlighted to indicate potential congestion or delays
 
 ### **How Jitter is Calculated**
-1. For each flow, calculate inter-arrival times between consecutive packets
-2. Jitter = variation in these inter-arrival times
-3. Calculated as absolute difference between consecutive delays
+1. Consecutive packet arrival times are analyzed within a flow
+2. Inter-arrival delay differences are computed
+3. Jitter is measured as the variation between consecutive packet delays
+4. Displayed as a **Time vs Jitter** graph to observe delay instability
 
-### **How Reordering is Detected**
-1. Examine sequence numbers in TCP packets
-2. When seq_num[i] > seq_num[i+1], packet is out of order
-3. Count such occurrences per flow
+### **How Packet Reordering is Detected**
+1. TCP sequence numbers are examined flow-wise
+2. A packet is considered reordered if a lower sequence number appears after a higher one
+3. Reordering frequency is calculated per flow
+4. Higher reordering may indicate routing inconsistencies or congestion
 
 ### **How TCP Slow Start is Identified**
-1. Find SYN packet (start of connection)
-2. Look for data packets following SYN-ACK
-3. Track until packet sizes stabilize
-4. Duration = time from SYN to stabilization
+1. TCP connection initiation is identified through SYN packets
+2. Early-stage packet transmission behavior is analyzed
+3. The period of increasing transmission activity is treated as slow start
+4. Slow start duration is estimated for TCP flow performance analysis
 
 ### **How Retransmission Bursts are Detected**
-1. Track ACK numbers in flow
-2. When same ACK appears 3+ times within 1 second = duplicate ACK
-3. 5+ duplicates = high severity
+1. TCP retransmissions are tracked within each flow
+2. Duplicate ACK patterns and repeated transmissions are analyzed
+3. Only **actual abnormal retransmission bursts** are flagged
+4. Isolated or normal retransmissions are not treated as burst anomalies
+5. Burst severity is determined based on retransmission concentration within short time intervals
+
+### **How Half-Open Connections are Detected**
+1. TCP three-way handshakes are monitored
+2. SYN and SYN-ACK packets are tracked
+3. Connections missing the final ACK are classified as **half-open**
+4. Used to identify failed or incomplete connection attempts
+
+### **How Throughput Stability is Calculated**
+1. Throughput is measured over time during traffic capture
+2. A **Time vs Throughput** graph is generated
+3. Stability is evaluated using an acceptable throughput threshold range
+4. Small throughput fluctuations are treated as normal
+5. Only significant abnormal throughput bursts are flagged
+6. Low but steady throughput is considered **stable**, avoiding false instability detection
 
 ### **How Flows are Classified**
-1. Check source/destination IP ranges
-2. Private ranges (10.x, 172.16-31.x, 192.168.x) = Internal
-3. Otherwise = External
-
----
-
-## 🎯 Interpretation Guide
-
-### **Network Health Scorecard**
-
-| Metric | Excellent | Good | Fair | Poor |
-|--------|-----------|------|------|------|
-| RTT | <20ms | 20-50ms | 50-100ms | >100ms |
-| Jitter | <5ms | 5-20ms | 20-50ms | >50ms |
-| Reordering | None | <1% | 1-5% | >5% |
-| Throughput Stability | >90% | 70-90% | 50-70% | <50% |
-| Half-Open Connections | 0 | 0 | <5% | >5% |
+1. Source and destination IP addresses are analyzed
+2. Traffic is classified as:
+   - **Internal traffic** → local/private network communication
+   - **External traffic** → communication outside the local network
+3. Flow map includes:
+   - Source/Destination pair
+   - Protocol
+   - Latency
+   - Traffic classification
 
 ---
 

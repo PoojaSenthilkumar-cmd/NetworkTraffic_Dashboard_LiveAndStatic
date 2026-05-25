@@ -104,6 +104,8 @@ def initialize_session_state():
         st.session_state.pcap_file_id = None
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = None
+    if 'live_capture_data' not in st.session_state:
+        st.session_state.live_capture_data = None
 
 
 def make_file_id(uploaded_file):
@@ -717,6 +719,7 @@ Analysis Dashboard
         ):
 
             st.session_state.analysis_results = None
+            st.session_state.live_capture_data = None
 
             manager = (
                 LiveCaptureManager()
@@ -763,9 +766,13 @@ Analysis Dashboard
                 .get_packets_dataframe()
             )
 
+            st.session_state.live_capture_data = packets_df
+
             st.success(
                 "Capture complete"
             )
+        elif st.session_state.live_capture_data is not None:
+            packets_df = st.session_state.live_capture_data
 
     if (
         'analysis_config_key' not in st.session_state
@@ -797,6 +804,18 @@ Loaded
 packets
 """
         )
+
+        if (
+            mode == "Live Traffic"
+            and not packets_df.empty
+        ):
+            live_csv = packets_df.to_csv(index=False)
+            st.download_button(
+                label="Download Live Capture CSV",
+                data=live_csv,
+                file_name="live_capture.csv",
+                mime="text/csv"
+            )
 
         if st.session_state.analysis_results is None:
             with st.spinner(
