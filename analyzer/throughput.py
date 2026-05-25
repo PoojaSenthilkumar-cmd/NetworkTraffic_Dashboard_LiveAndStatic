@@ -7,6 +7,9 @@ import pandas as pd
 from datetime import timedelta
 
 
+ACCEPTABLE_THRESHOLD_MBPS = 25.0
+
+
 class ThroughputAnalyzer:
 
     def __init__(self, packets_df):
@@ -74,147 +77,89 @@ class ThroughputAnalyzer:
         tp = self.throughput_data["throughput_mbps"]
         active_windows = tp[tp > 0]
 
-        if len(active_windows) < 10:
+        if self.throughput_data.empty:
             return {
                 "stability_score": None,
-                "coefficient_of_variation": None,
                 "stability_classification": "Insufficient Data",
                 "anomalies_detected": 0,
                 "is_burst_event": False,
-                "burst_events": []
+                "burst_events": [],
+                "acceptable_threshold_mbps": ACCEPTABLE_THRESHOLD_MBPS
+            }
+
+        if active_windows.empty:
+            return {
+                "stability_score": 100,
+                "stability_classification": "Stable",
+                "mean_throughput_mbps": 0,
+                "std_dev_mbps": 0,
+                "anomalies_detected": 0,
+                "is_burst_event": False,
+                "burst_events": [],
+                "acceptable_threshold_mbps": ACCEPTABLE_THRESHOLD_MBPS,
+                "recommendation": "Stable throughput within acceptable range"
             }
 
         mean_tp = active_windows.mean()
         std_tp = active_windows.std()
+        anomalies = self._detect_abnormal_bursts(self.throughput_data)
+        burst_count = len(anomalies)
 
-        if mean_tp == 0:
-            return {
-                "stability_score": 0,
-                "coefficient_of_variation": 0,
-                "stability_classification": "No Traffic",
-                "anomalies_detected": 0,
-                "is_burst_event": False,
-                "burst_events": [],
-                "recommendation": "No traffic detected"
-            }
-
-        cv = (std_tp / mean_tp) * 100
-        anomalies = self._detect_abnormal_bursts(
-            self.throughput_data,
-            mean_tp,
-            std_tp
-        )
-
-        if cv < 20:
-            classification = "Excellent Stability"
-            score = 95
-        elif cv < 35:
-            classification = "Very Stable"
-            score = 85
-        elif cv < 60:
+        if burst_count == 0:
             classification = "Stable"
-            score = 70
-        elif cv < 100:
-            classification = "Moderate"
-            score = 50
+            score = 100
+        elif burst_count <= 3:
+            classification = "Moderate Variability"
+            score = 60
         else:
             classification = "High Variability"
             score = 25
 
-        has_anomalies = len(anomalies) > 0
+        has_anomalies = burst_count > 0
 
         return {
             "stability_score": round(score, 2),
-            "coefficient_of_variation": round(cv, 2),
             "stability_classification": classification,
             "mean_throughput_mbps": round(mean_tp, 2),
             "std_dev_mbps": round(std_tp, 2),
-            "anomalies_detected": len(anomalies),
+            "anomalies_detected": burst_count,
             "is_burst_event": has_anomalies,
             "burst_events": anomalies,
-            "recommendation": self._get_recommendation(cv, has_anomalies)
+            "acceptable_threshold_mbps": ACCEPTABLE_THRESHOLD_MBPS,
+            "recommendation": self._get_threshold_recommendation(
+                classification,
+                burst_count
+            )
         }
 
-    def _detect_abnormal_bursts(self, df, mean_tp, std_tp):
-        tp = df[df["throughput_mbps"] > 0]["throughput_mbps"].reset_index(drop=True)
-
-        if len(tp) < 5:
-            return []
-
+    def _detect_abnormal_bursts(self, df):
         anomalies = []
 
-        for i in range(1, len(tp)):
-            current = tp.iloc[i]
-            previous = tp.iloc[i - 1]
-            change_pct = abs(current - previous) / (previous + 1e-6) * 100
+        for index, row in df.iterrows():
+            current = row["throughput_mbps"]
 
-            if change_pct > 50:
-                severity = "High" if change_pct > 80 else "Medium"
+            if current > ACCEPTABLE_THRESHOLD_MBPS:
                 anomalies.append({
-                    "index": i,
-                    "previous_mbps": round(previous, 2),
+                    "index": int(index),
+                    "timestamp": row["timestamp"],
                     "current_mbps": round(current, 2),
-                    "change_percent": round(change_pct, 2),
-                    "severity": severity,
-                    "type": "Drop" if current < previous else "Spike"
-                })
-            elif std_tp > 0 and abs(current - mean_tp) > 2 * std_tp:
-                anomalies.append({
-                    "index": i,
-                    "value_mbps": round(current, 2),
-                    "mean_mbps": round(mean_tp, 2),
-                    "std_devs_away": round(abs(current - mean_tp) / std_tp, 2),
-                    "severity": "Low",
-                    "type": "Outlier"
+                    "threshold_mbps": ACCEPTABLE_THRESHOLD_MBPS,
+                    "excess_mbps": round(current - ACCEPTABLE_THRESHOLD_MBPS, 2),
+                    "severity": "High",
+                    "type": "Threshold Exceeded"
                 })
 
         return anomalies
 
-    def _get_recommendation(self, cv, has_anomalies):
-        if has_anomalies:
-            return "⚠️ Abnormal burst detected - investigate congestion"
-        elif cv > 60:
-            return "⚠️ High variability - monitor network conditions"
-        elif cv > 35:
-            return "✓ Normal TCP behavior - acceptable"
-        else:
-            return "✓ Excellent fiber performance"
-    
-    # def _stability(self):
-
-    #     active_windows = self.throughput_data[
-    #         self.throughput_data["packet_count"] > 0
-    #     ]
-
-    #     if active_windows.empty:
-    #         return {
-    #             "stability_score": 0.0,
-    #             "coefficient_of_variation": 0.0,
-    #             "stability_classification": "No Active Traffic"
-    #         }
-
-    #     tp = active_windows["throughput_mbps"]
-    #     mean_tp = tp.mean()
-    #     std_tp = tp.std()
-
-    #     if mean_tp == 0 or pd.isna(mean_tp):
-    #         score = 0.0
-    #         cv = 0.0
-    #     else:
-    #         cv = (std_tp / mean_tp) * 100
-    #         score = max(0.0, 100.0 - cv)
-
-    #     if score >= 80:
-    #         label = "Very Stable"
-    #     elif score >= 60:
-    #         label = "Stable"
-    #     elif score >= 40:
-    #         label = "Moderate"
-    #     else:
-    #         label = "Unstable"
-
-    #     return {
-    #         "stability_score": round(score, 2),
-    #         "coefficient_of_variation": round(cv, 2),
-    #         "stability_classification": label
-    #     }
+    def _get_threshold_recommendation(self, classification, burst_count):
+        if classification == "High Variability":
+            return (
+                f"{burst_count} throughput sample(s) exceeded "
+                f"{ACCEPTABLE_THRESHOLD_MBPS:.1f} Mbps - investigate congestion"
+            )
+        if classification == "Moderate Variability":
+            return (
+                f"{burst_count} throughput sample(s) exceeded "
+                f"{ACCEPTABLE_THRESHOLD_MBPS:.1f} Mbps - monitor network conditions"
+            )
+        return "Stable throughput within acceptable range"

@@ -35,10 +35,14 @@ from analyzer.rtt import RTTAnalyzer
 from analyzer.jitter import JitterAnalyzer
 from analyzer.reordering import (ReorderingAnalyzer)
 from analyzer.tcp_analysis import (TCPAnalyzer)
-from analyzer.throughput import (ThroughputAnalyzer)
+from analyzer.throughput import (ACCEPTABLE_THRESHOLD_MBPS, ThroughputAnalyzer)
 from analyzer.flowmap import (FlowMapper)
 
 from liveCaptureData.live_capture import (LiveCaptureManager)
+
+
+CAPTURED_THROUGHPUT_WINDOW_MS = 5000
+LIVE_CAPTURE_PACKET_LIMIT = 0
 
 # ==========================================
 # Streamlit Config
@@ -255,7 +259,8 @@ def plot_jitter(
 # ==========================================
 
 def plot_throughput(
-    throughput_df
+    throughput_df,
+    stability_metric=None
 ):
 
     if throughput_df.empty:
@@ -264,12 +269,39 @@ def plot_throughput(
         )
         return
 
+    classification = (
+        stability_metric or {}
+    ).get("stability_classification", "Stable")
+
     fig = px.line(
         throughput_df,
         x="timestamp",
         y="throughput_mbps",
-        title="Throughput Stability"
+        title=f"Throughput Stability - {classification}"
     )
+
+    fig.add_hline(
+        y=ACCEPTABLE_THRESHOLD_MBPS,
+        line_dash="dash",
+        line_color="red",
+        annotation_text=f"Acceptable threshold ({ACCEPTABLE_THRESHOLD_MBPS:.1f} Mbps)",
+        annotation_position="top left"
+    )
+
+    abnormal_points = throughput_df[
+        throughput_df["throughput_mbps"] > ACCEPTABLE_THRESHOLD_MBPS
+    ]
+
+    if not abnormal_points.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=abnormal_points["timestamp"],
+                y=abnormal_points["throughput_mbps"],
+                mode="markers",
+                marker=dict(color="red", size=9),
+                name="Abnormal burst"
+            )
+        )
 
     st.plotly_chart(
         fig,
@@ -452,14 +484,12 @@ def show_causality(results):
         is_burst_event = stability_metric.get("is_burst_event", False)
 
         if is_burst_event or stability in [
-            "Moderate",
-            "High Variability",
-            "Burst Traffic",
-            "Unstable"
+            "Moderate Variability",
+            "High Variability"
         ]:
             events.append(
                 (
-                    "Throughput Instability",
+                    "Throughput Variability",
                     stability or "Anomalous"
                 )
             )
@@ -527,21 +557,6 @@ Analysis Dashboard
         "Configuration"
     )
 
-    throughput_window = st.sidebar.slider(
-        "Throughput Window (ms)",
-        1000,
-        10000,
-        5000,
-        step=1000
-    )
-
-    if (
-        'throughput_window' not in st.session_state
-        or st.session_state.throughput_window != throughput_window
-    ):
-        st.session_state.throughput_window = throughput_window
-        st.session_state.analysis_results = None
-
     mode = (
         st.sidebar.radio(
             "Choose Mode",
@@ -553,6 +568,12 @@ Analysis Dashboard
         )
     )
 
+    throughput_window = CAPTURED_THROUGHPUT_WINDOW_MS
+    analysis_config_key = {
+        "mode": mode,
+        "throughput_window": throughput_window
+    }
+
     packets_df = None
 
     # ======================================
@@ -562,6 +583,8 @@ Analysis Dashboard
     if mode == (
         "Captured Traffic"
     ):
+
+        throughput_window = CAPTURED_THROUGHPUT_WINDOW_MS
 
         uploaded_file = (
             st.sidebar.file_uploader(
@@ -637,28 +660,27 @@ Analysis Dashboard
 
     else:
 
-        packet_count = (
+        selected_time_window = (
             st.sidebar.slider(
-                "Packets",
-                100,
-                5000,
-                1000
+                "Time Window (seconds)",
+                10,
+                300,
+                60
             )
         )
 
-        capture_timeout = (
-            st.sidebar.slider(
-                "Capture Duration (seconds)",
-                10,
-                5 * 60,
-                60,
-                step=10
-            )
-        )
+        capture_timeout = selected_time_window
+        throughput_window = selected_time_window * 1000
+        analysis_config_key = {
+            "mode": mode,
+            "throughput_window": throughput_window
+        }
 
         if st.sidebar.button(
             "Start Capture"
         ):
+
+            st.session_state.analysis_results = None
 
             manager = (
                 LiveCaptureManager()
@@ -670,7 +692,7 @@ Analysis Dashboard
                     "session1",
 
                     packet_count=
-                    packet_count,
+                    LIVE_CAPTURE_PACKET_LIMIT,
                     capture_timeout=
                     capture_timeout
                 )
@@ -680,21 +702,18 @@ Analysis Dashboard
                 st.progress(0)
             )
 
+            capture_started_at = time.time()
+
             while (
                 capture
                 .is_capturing()
             ):
 
-                packet_num = (
-                    capture
-                    .get_packet_count()
-                )
-
                 progress.progress(
                     min(
-                        packet_num
+                        (time.time() - capture_started_at)
                         /
-                        packet_count,
+                        capture_timeout,
                         1.0
                     )
                 )
@@ -711,6 +730,13 @@ Analysis Dashboard
             st.success(
                 "Capture complete"
             )
+
+    if (
+        'analysis_config_key' not in st.session_state
+        or st.session_state.analysis_config_key != analysis_config_key
+    ):
+        st.session_state.analysis_config_key = analysis_config_key
+        st.session_state.analysis_results = None
 
     # ======================================
     # ANALYSIS
@@ -834,7 +860,6 @@ packets
                     st.metric(
                         "Mean RTT",
                         f"{rtt_stats['mean_rtt']:.2f} ms",
-                        delta=f"±{rtt_stats['std_rtt']:.2f} ms"
                     )
                 with col2:
                     st.metric("Median RTT", f"{rtt_stats['median_rtt']:.2f} ms")
@@ -981,15 +1006,16 @@ Connections
 
             if throughput:
 
-                plot_throughput(
-                    throughput[
-                        "dataframe"
-                    ]
-                )
-
                 stability_metric = throughput[
                     "stability_metric"
                 ]
+
+                plot_throughput(
+                    throughput[
+                        "dataframe"
+                    ],
+                    stability_metric
+                )
 
                 st.metric(
                     "Stability",
@@ -1001,6 +1027,16 @@ Connections
                 if stability_metric.get("is_burst_event"):
                     st.warning(
                         f"⚠️ {stability_metric['anomalies_detected']} abnormal burst(s) detected"
+                    )
+
+                if stability_metric.get("is_burst_event"):
+                    st.caption(
+                        f"Abnormal means throughput above {ACCEPTABLE_THRESHOLD_MBPS:.1f} Mbps."
+                    )
+
+                if not stability_metric.get("is_burst_event"):
+                    st.success(
+                        "Stable throughput within acceptable range"
                     )
 
                 if stability_metric.get("recommendation"):
